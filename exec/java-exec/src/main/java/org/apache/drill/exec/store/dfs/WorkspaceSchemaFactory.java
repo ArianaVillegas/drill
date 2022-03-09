@@ -466,11 +466,13 @@ public class WorkspaceSchemaFactory {
         return;
       }
 
+      // System.out.println("Table set table file path " + getStatsTableFilePath(tableName));
       try {
         String statsTableName = getStatsTableName(tableName);
         Path statsTableFilePath = getStatsTableFilePath(tableName);
         metadataProviderManager.setStatsProvider(new DrillStatsTable(table, getFullSchemaName(), statsTableName,
             statsTableFilePath, fs));
+        // System.out.println("Failed to find the stats table for table " + tableName + " in schema " + getFullSchemaName());
       } catch (Exception e) {
         logger.warn("Failed to find the stats table for table [{}] in schema [{}]",
             tableName, getFullSchemaName());
@@ -870,6 +872,7 @@ public class WorkspaceSchemaFactory {
           DrillTable table = matcher.isReadable(getFS(), newSelection, plugin, storageEngineName, schemaConfig);
           if (table != null) {
             formatMatch = matcher;
+            // System.out.println("Add metadata here!!!!!");
             setMetadataProviderManager(table, key.sig.getName());
             return table;
           }

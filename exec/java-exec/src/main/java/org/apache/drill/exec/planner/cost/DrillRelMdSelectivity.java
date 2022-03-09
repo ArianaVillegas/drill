@@ -88,15 +88,21 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
 
   @Override
   public Double getSelectivity(RelNode rel, RelMetadataQuery mq, RexNode predicate) {
+    // System.out.println("GET SELECTIVITY " + rel);
+    // System.out.println("Guess rows " + DrillRelOptUtil.guessRows(rel));
     if (rel instanceof RelSubset && !DrillRelOptUtil.guessRows(rel)) {
+      // System.out.println("GET SELECTIVITY subset " + RelOptUtil.toString(rel));
       return getSubsetSelectivity((RelSubset) rel, mq, predicate);
     } else if (rel instanceof TableScan) {
+      // System.out.println("GET SELECTIVITY scan " + RelOptUtil.toString(rel));
       return getScanSelectivity(rel, mq, predicate);
     } else if (rel instanceof DrillJoinRelBase) {
+      System.out.println("GET SELECTIVITY join " + rel);
       return getJoinSelectivity(((DrillJoinRelBase) rel), mq, predicate);
     } /*else if (rel instanceof SingleRel && !DrillRelOptUtil.guessRows(rel)) {
       return getSelectivity(((SingleRel)rel).getInput(), mq, predicate);
     }*/ else {
+      // System.out.println("GET SELECTIVITY super " + RelOptUtil.toString(rel));
       return super.getSelectivity(rel, mq, predicate);
     }
   }
@@ -120,6 +126,9 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
     PlannerSettings settings = PrelUtil.getPlannerSettings(rel.getCluster().getPlanner());
     final RexBuilder rexBuilder = rel.getCluster().getRexBuilder();
 
+
+    // System.out.println("Drill scan rel: " + predicate.toString());
+
     if (rel instanceof DrillScanRel) {
       scan = ((DrillScanRel) rel).getGroupScan();
     } else if (rel instanceof ScanPrel) {
@@ -136,6 +145,8 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
         }
       }
     }
+
+    // System.out.println("Predicate: " + predicate.toString());
     // Do not mess with statistics used for DBGroupScans.
     if (rel instanceof TableScan) {
       if (DrillRelOptUtil.guessRows(rel)) {
@@ -154,12 +165,14 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
                 .map(SchemaPath::getSimplePath)
                 .collect(Collectors.toList());
           }
+          // System.out.println("Drill Table field names: " + fieldNames);
           return getScanSelectivityInternal(tableMetadata, predicate, fieldNames, rexBuilder);
         }
       } catch (IOException e) {
         super.getSelectivity(rel, mq, predicate);
       }
     }
+
     return super.getSelectivity(rel, mq, predicate);
   }
 
@@ -202,16 +215,21 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
             }
           }
         } else if (orPred.isA(SqlKind.EQUALS)) {
+          System.out.println("Compute equal selectivity");
           orSel += computeEqualsSelectivity(tableMetadata, orPred, fieldNames);
         } else if (orPred.isA(RANGE_PREDICATE) || combinedRangePredicates.contains(orPred)) {
+          System.out.println("Compute range selectivity");
           orSel += computeRangeSelectivity(tableMetadata, orPred, fieldNames);
         } else if (orPred.isA(SqlKind.NOT_EQUALS)) {
+          System.out.println("Compute not equal selectivity");
           orSel += 1.0 - computeEqualsSelectivity(tableMetadata, orPred, fieldNames);
         } else if (orPred.isA(SqlKind.LIKE)) {
+          System.out.println("Compute like selectivity");
           // LIKE selectivity is 5% more than a similar equality predicate, capped at CALCITE guess
           orSel +=  Math.min(computeEqualsSelectivity(tableMetadata, orPred, fieldNames) + LIKE_PREDICATE_SELECTIVITY,
               guessSelectivity(orPred));
         } else if (orPred.isA(SqlKind.NOT)) {
+          System.out.println("Compute not selectivity");
           if (orPred instanceof RexCall) {
             // LIKE selectivity is 5% more than a similar equality predicate, capped at CALCITE guess
             RexNode childOp = ((RexCall) orPred).getOperands().get(0);
@@ -223,10 +241,13 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
             }
           }
         } else if (orPred.isA(SqlKind.IS_NULL)) {
+          System.out.println("Compute is null selectivity");
           orSel += 1.0 - computeIsNotNullSelectivity(tableMetadata, orPred, fieldNames);
         } else if (orPred.isA(SqlKind.IS_NOT_NULL)) {
+          System.out.println("Compute is not null selectivity");
           orSel += computeIsNotNullSelectivity(tableMetadata, orPred, fieldNames);
         } else {
+          System.out.println("Compute not defined selectivity");
           // Use the CALCITE guess.
           orSel += guessSelectivity(orPred);
         }
@@ -306,6 +327,7 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
 
   // Use histogram if available for the range predicate selectivity
   private double computeRangeSelectivity(TableMetadata tableMetadata, RexNode orPred, List<SchemaPath> fieldNames) {
+    System.out.println("Compute range selectivity");
     SchemaPath col = getColumn(orPred, fieldNames);
     if (col != null) {
       ColumnStatistics<?> columnStatistics = tableMetadata != null ? tableMetadata.getColumnStatistics(col) : null;
@@ -364,6 +386,8 @@ public class DrillRelMdSelectivity extends RelMdSelectivity {
   }
 
   private Double getJoinSelectivity(DrillJoinRelBase rel, RelMetadataQuery mq, RexNode predicate) {
+    System.out.println("Join -----------------------");
+    System.out.println(predicate.toString());
     double sel = 1.0;
     // determine which filters apply to the left vs right
     RexNode leftPred, rightPred;

@@ -76,6 +76,7 @@ public class FileSystemMetadataProviderManager implements MetadataProviderManage
 
   @Override
   public void setStatsProvider(DrillStatsTable statsProvider) {
+    // System.out.println("Provide stats");
     this.statsProvider = statsProvider;
   }
 

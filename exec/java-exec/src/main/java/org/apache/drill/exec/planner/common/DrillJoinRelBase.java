@@ -17,33 +17,37 @@
  */
 package org.apache.drill.exec.planner.common;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import org.apache.calcite.plan.RelOptCluster;
-import org.apache.calcite.plan.RelOptCost;
-import org.apache.calcite.plan.RelOptPlanner;
-import org.apache.calcite.plan.RelTraitSet;
+import java.util.*;
+
+import org.apache.calcite.plan.*;
+import org.apache.calcite.plan.volcano.RelSubset;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.CorrelationId;
 import org.apache.calcite.rel.core.Join;
 import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.logical.LogicalJoin;
+import org.apache.calcite.rel.metadata.RelColumnOrigin;
 import org.apache.calcite.rel.metadata.RelMetadataQuery;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexTableInputRef;
 import org.apache.calcite.util.ImmutableBitSet;
 import org.apache.calcite.util.Pair;
+import org.apache.drill.common.expression.SchemaPath;
 import org.apache.drill.exec.ExecConstants;
 import org.apache.drill.exec.expr.holders.IntHolder;
 import org.apache.drill.exec.physical.impl.join.JoinUtils;
 import org.apache.drill.exec.physical.impl.join.JoinUtils.JoinCategory;
+import org.apache.drill.exec.physical.impl.scan.file.MetadataColumn;
 import org.apache.drill.exec.planner.cost.DrillCostBase;
 import org.apache.drill.exec.planner.cost.DrillCostBase.DrillCostFactory;
 import org.apache.drill.exec.planner.logical.DrillJoin;
+import org.apache.drill.exec.planner.logical.DrillTable;
 import org.apache.drill.exec.planner.physical.PrelUtil;
+import org.apache.drill.metastore.statistics.Histogram;
 import org.apache.drill.shaded.guava.com.google.common.collect.Lists;
+
+import org.apache.drill.exec.util.Utilities;
 
 /**
  * Base class for logical and physical Joins implemented in Drill.
@@ -67,6 +71,7 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
 
   @Override
   public RelOptCost computeSelfCost(RelOptPlanner planner, RelMetadataQuery mq) {
+    // System.out.println("Estimate join cost");
     JoinCategory category = JoinUtils.getJoinCategory(left, right, condition, leftKeys, rightKeys, filterNulls);
     if (category == JoinCategory.CARTESIAN || category == JoinCategory.INEQUALITY) {
       if (PrelUtil.getPlannerSettings(planner).isNestedLoopJoinEnabled()) {
@@ -98,6 +103,36 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
     return computeLogicalJoinCost(planner, mq);
   }
 
+  private double estimateJoinCardinality(Double[] left, Double[] right) {
+    Double cnt = 0.0;
+    for (int i=1; i<left.length; i++) {
+      for (int j=1; j<right.length; j++) {
+        if (right[j-1] > left[i] || left[i-1] > right[j]) continue;
+        // cnt += 1;
+        cnt += Math.min(left[i], right[j]) - Math.max(left[i-1], right[j-1]);
+      }
+    }
+    return cnt;
+  }
+
+  private DrillStatsTable getTable(Set<RexTableInputRef.RelTableRef> tables, String col_name) {
+    for (RexTableInputRef.RelTableRef table:tables) {
+      DrillTable drillTable = Utilities.getDrillTable(table.getTable());
+      if (drillTable == null) {
+        continue;
+      }
+      DrillStatsTable drillStatsTable = drillTable.getMetadataProviderManager().getStatsProvider();
+      if (drillStatsTable == null) {
+        continue;
+      }
+      Set<SchemaPath> columns = drillStatsTable.getColumns();
+      if (columns.contains(SchemaPath.parseFromString(col_name))) {
+        return drillStatsTable;
+      }
+    }
+    return null;
+  }
+
   @Override
   public double estimateRowCount(RelMetadataQuery mq) {
     if (this.condition.isAlwaysTrue()) {
@@ -109,6 +144,7 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
 
     if (!DrillRelOptUtil.guessRows(this)         //Statistics present for left and right side of the join
         && jr.getJoinType() == JoinRelType.INNER) {
+      // System.out.println("Estimate row count join cost");
       List<Pair<Integer, Integer>> joinConditions = DrillRelOptUtil.analyzeSimpleEquiJoin((Join)jr);
       if (joinConditions.size() > 0) {
         List<Integer> leftSide =  new ArrayList<>();
@@ -126,12 +162,49 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
         Double lrc = mq.getRowCount(this.getLeft());
         Double rrc = mq.getRowCount(this.getRight());
 
+        // System.out.println("bitset left " + leq);
+        // System.out.println("bitset right " + req);
+
+        Set<RexTableInputRef.RelTableRef> tables_left = mq.getTableReferences(this.getLeft());
+        Set<RexTableInputRef.RelTableRef> tables_right = mq.getTableReferences(this.getRight());
+        String name_left = this.getLeft().getRowType().getFieldNames().get(leq.nth(0));
+        String name_right = this.getRight().getRowType().getFieldNames().get(req.nth(0));
+
+        // System.out.println("INIT-------------------------------------------");
+        System.out.println(name_left + ":" + name_right);
+
+        // System.out.println("Valid:" + (ldrc != null && rdrc != null && lrc != null && rrc != null));
+        if (tables_left != null && tables_right != null && lrc != null && rrc != null) {
+          DrillStatsTable stats_left = getTable(tables_left, name_left);
+          DrillStatsTable stats_right = getTable(tables_right, name_right);
+          SchemaPath col_name_left = SchemaPath.parseFromString(name_left);
+          SchemaPath col_name_right = SchemaPath.parseFromString(name_right);
+          // System.out.println(stats_left.getTableName() + " " + stats_right.getTableName());
+          /*System.out.println(this.getLeft().getRowType().getFieldNames());
+          System.out.println(this.getRight().getRowType().getFieldNames());*/
+          // System.out.println(leq + ":" + req);
+
+          NumericEquiDepthHistogram hist_left = (NumericEquiDepthHistogram) stats_left.getHistogram(col_name_left);
+          NumericEquiDepthHistogram hist_right = (NumericEquiDepthHistogram) stats_right.getHistogram(col_name_right);
+          double factor = lrc * 0.00001 * rrc * 0.00001;
+          System.out.printf("Estimate row count join cost %f\n", estimateJoinCardinality(hist_left.getBuckets(), hist_right.getBuckets()) * factor);
+          /*System.out.printf("Prev Estimate row count join cost %f\n", (lrc / Math.max(ldrc, rdrc)) * rrc);
+          System.out.printf("RowCnt: %f -- %f\n", lrc, rrc);
+          System.out.printf("Hist: %f -- %f\n", hist_left.getNumRows(), hist_right.getNumRows());*/
+          return estimateJoinCardinality(hist_left.getBuckets(), hist_right.getBuckets());
+        }
+
         if (ldrc != null && rdrc != null && lrc != null && rrc != null) {
           // Join cardinality = (lrc * rrc) / Math.max(ldrc, rdrc). Avoid overflow by dividing earlier
+          // System.out.printf("Prev Estimate row count join cost %f\n", (lrc / Math.max(ldrc, rdrc)) * rrc);
           return (lrc / Math.max(ldrc, rdrc)) * rrc;
         }
       }
     }
+
+    /*System.out.println("Join factor: " + joinRowFactor * Math.max(
+            mq.getRowCount(this.getLeft()),
+            mq.getRowCount(this.getRight())));*/
 
     return joinRowFactor * Math.max(
         mq.getRowCount(this.getLeft()),
@@ -208,6 +281,7 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
   private RelOptCost computeHashJoinCostWithKeySize(RelOptPlanner planner, int keySize, RelMetadataQuery mq) {
     double probeRowCount = mq.getRowCount(this.getLeft());
     double buildRowCount = mq.getRowCount(this.getRight());
+    // System.out.println("probeRowCount " + probeRowCount + " buildRowCount " + buildRowCount);
     return computeHashJoinCostWithRowCntKeySize(planner, probeRowCount, buildRowCount, keySize);
   }
 

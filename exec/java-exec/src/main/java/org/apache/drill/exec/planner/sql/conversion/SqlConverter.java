@@ -279,6 +279,7 @@ public class SqlConverter {
 
   private void initCluster(RelOptPlanner planner) {
     if (cluster == null) {
+      System.out.println("Init cluster");
       cluster = RelOptCluster.create(planner, new DrillRexBuilder(typeFactory));
       JaninoRelMetadataProvider relMetadataProvider = Utilities.registerJaninoRelMetadataProvider();
       cluster.setMetadataProvider(relMetadataProvider);

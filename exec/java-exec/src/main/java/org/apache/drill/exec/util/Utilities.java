@@ -133,6 +133,7 @@ public class Utilities {
   }
 
   public static JaninoRelMetadataProvider registerJaninoRelMetadataProvider() {
+    // System.out.println("Register Janino Metadata Provider");
     JaninoRelMetadataProvider relMetadataProvider = JaninoRelMetadataProvider.of(DrillDefaultRelMetadataProvider.INSTANCE);
     RelMetadataQuery.THREAD_PROVIDERS.set(relMetadataProvider);
     return relMetadataProvider;

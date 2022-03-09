@@ -63,6 +63,17 @@ public class NumericEquiDepthHistogram implements Histogram {
   @JsonProperty("buckets")
   private Double[] buckets;
 
+  public Double getNumRows() {
+    return numRowsPerBucket * (buckets.length - 1);
+  }
+
+  public void PrintBuckets() {
+    for (int i=0; i < buckets.length; i++) {
+      System.out.print(buckets[i] + " ");
+    }
+    System.out.println();
+  }
+
   // Default constructor for deserializer
   public NumericEquiDepthHistogram() {}
 

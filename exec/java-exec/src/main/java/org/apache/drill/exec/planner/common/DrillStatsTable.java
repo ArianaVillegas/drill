@@ -72,6 +72,7 @@ public class DrillStatsTable {
   public static final STATS_VERSION CURRENT_VERSION = STATS_VERSION.V1;
   // 10 histogram buckets (TODO: can make this configurable later)
   public static final int NUM_HISTOGRAM_BUCKETS = 10;
+  public static final int ROWS_PER_BUCKET = 5000;
 
   private final FileSystem fs;
   private final Path tablePath;
@@ -79,6 +80,7 @@ public class DrillStatsTable {
   private final String tableName;
   private final Map<SchemaPath, Long> ndv = new HashMap<>();
   private final Map<SchemaPath, Histogram> histogram = new HashMap<>();
+  private final ArrayList<SchemaPath> colNames = new ArrayList<>();
   private double rowCount = -1;
   private final Map<SchemaPath, Long> nnRowCount = new HashMap<>();
   private boolean materialized = false;
@@ -86,6 +88,7 @@ public class DrillStatsTable {
   private TableStatistics statistics = null;
 
   public DrillStatsTable(DrillTable table, String schemaName, String tableName, Path tablePath, FileSystem fs) {
+    System.out.println("Create stats table " + tableName);
     this.schemaName = schemaName;
     this.tableName = tableName;
     this.tablePath = tablePath;
@@ -198,6 +201,14 @@ public class DrillStatsTable {
     return histogram.get(column);
   }
 
+  public SchemaPath getSchemaPath(int column) {
+    // Stats might not have materialized because of errors.
+    if (!materialized) {
+      return null;
+    }
+    return colNames.get(column);
+  }
+
   /**
    * Read the stats from storage and keep them in memory.
    */
@@ -222,6 +233,7 @@ public class DrillStatsTable {
     if (statistics instanceof Statistics_v0) {
       // Do nothing
     } else if (statistics instanceof Statistics_v1) {
+      System.out.println("Materialize stats v1");
       for (DirectoryStatistics_v1 ds : ((Statistics_v1) statistics).getDirectoryStatistics()) {
         for (ColumnStatistics_v1 cs : ds.getColumnStatistics()) {
           ndv.put(cs.getName(), cs.getNdv());
@@ -231,6 +243,7 @@ public class DrillStatsTable {
           // get the histogram for this column
           Histogram hist = cs.getHistogram();
           histogram.put(cs.getName(), hist);
+          colNames.add(cs.getName());
         }
       }
     }
@@ -398,7 +411,9 @@ public class DrillStatsTable {
     }
     @JsonIgnore
     public void buildHistogram(byte[] tdigest_bytearray) {
-      int num_buckets = (int) Math.min(ndv, DrillStatsTable.NUM_HISTOGRAM_BUCKETS);
+      // int num_buckets = (int) Math.min(ndv, DrillStatsTable.NUM_HISTOGRAM_BUCKETS);
+      System.out.println("Build histogram stats table");
+      int num_buckets = (int) Math.min(ndv, count/DrillStatsTable.ROWS_PER_BUCKET);
       this.histogram = HistogramUtils.buildHistogramFromTDigest(tdigest_bytearray, this.getType(),
               num_buckets, nonNullCount);
     }

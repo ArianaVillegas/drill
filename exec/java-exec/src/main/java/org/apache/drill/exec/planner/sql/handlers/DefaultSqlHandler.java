@@ -263,6 +263,7 @@ public class DefaultSqlHandler extends AbstractSqlHandler {
         // Do Join Planning.
         intermediateNode3 = transform(PlannerType.HEP_BOTTOM_UP, PlannerPhase.JOIN_PLANNING, intermediateNode2);
 
+
         if (context.getPlannerSettings().isRowKeyJoinConversionEnabled()) {
           // Covert Join to RowKeyJoin, where applicable.
           convertedRelNode = transform(PlannerType.HEP_BOTTOM_UP, PlannerPhase.ROWKEYJOIN_CONVERSION, intermediateNode3);
@@ -306,7 +307,6 @@ public class DefaultSqlHandler extends AbstractSqlHandler {
    */
   protected DrillRel convertToDrel(RelNode relNode) throws SqlUnsupportedException {
     final DrillRel convertedRelNode = convertToRawDrel(relNode);
-
     return new DrillScreenRel(convertedRelNode.getCluster(), convertedRelNode.getTraitSet(),
         convertedRelNode);
   }
