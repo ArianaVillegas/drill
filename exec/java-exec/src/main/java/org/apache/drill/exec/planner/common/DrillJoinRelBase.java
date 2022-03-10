@@ -108,8 +108,7 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
     for (int i=1; i<left.length; i++) {
       for (int j=1; j<right.length; j++) {
         if (right[j-1] > left[i] || left[i-1] > right[j]) continue;
-        // cnt += 1;
-        cnt += Math.min(left[i], right[j]) - Math.max(left[i-1], right[j-1]);
+        cnt += 1;
       }
     }
     return cnt;
@@ -162,49 +161,38 @@ public abstract class DrillJoinRelBase extends Join implements DrillJoin {
         Double lrc = mq.getRowCount(this.getLeft());
         Double rrc = mq.getRowCount(this.getRight());
 
-        // System.out.println("bitset left " + leq);
-        // System.out.println("bitset right " + req);
-
         Set<RexTableInputRef.RelTableRef> tables_left = mq.getTableReferences(this.getLeft());
         Set<RexTableInputRef.RelTableRef> tables_right = mq.getTableReferences(this.getRight());
         String name_left = this.getLeft().getRowType().getFieldNames().get(leq.nth(0));
         String name_right = this.getRight().getRowType().getFieldNames().get(req.nth(0));
 
-        // System.out.println("INIT-------------------------------------------");
         System.out.println(name_left + ":" + name_right);
 
-        // System.out.println("Valid:" + (ldrc != null && rdrc != null && lrc != null && rrc != null));
-        if (tables_left != null && tables_right != null && lrc != null && rrc != null) {
+        if (tables_left != null && tables_right != null && ldrc != null && rdrc != null && lrc != null && rrc != null) {
           DrillStatsTable stats_left = getTable(tables_left, name_left);
           DrillStatsTable stats_right = getTable(tables_right, name_right);
           SchemaPath col_name_left = SchemaPath.parseFromString(name_left);
           SchemaPath col_name_right = SchemaPath.parseFromString(name_right);
           // System.out.println(stats_left.getTableName() + " " + stats_right.getTableName());
-          /*System.out.println(this.getLeft().getRowType().getFieldNames());
-          System.out.println(this.getRight().getRowType().getFieldNames());*/
-          // System.out.println(leq + ":" + req);
 
           NumericEquiDepthHistogram hist_left = (NumericEquiDepthHistogram) stats_left.getHistogram(col_name_left);
           NumericEquiDepthHistogram hist_right = (NumericEquiDepthHistogram) stats_right.getHistogram(col_name_right);
-          double factor = lrc * 0.00001 * rrc * 0.00001;
-          System.out.printf("Estimate row count join cost %f\n", estimateJoinCardinality(hist_left.getBuckets(), hist_right.getBuckets()) * factor);
-          /*System.out.printf("Prev Estimate row count join cost %f\n", (lrc / Math.max(ldrc, rdrc)) * rrc);
-          System.out.printf("RowCnt: %f -- %f\n", lrc, rrc);
-          System.out.printf("Hist: %f -- %f\n", hist_left.getNumRows(), hist_right.getNumRows());*/
-          return estimateJoinCardinality(hist_left.getBuckets(), hist_right.getBuckets());
+          double factor = lrc * rrc;
+          double card = estimateJoinCardinality(hist_left.getBuckets(), hist_right.getBuckets()) * Math.max(hist_left.getNumRowsPerBucket(), hist_right.getNumRowsPerBucket());
+          /*System.out.printf("Cardinality %f\n", card);
+          System.out.printf("Hist: %f -- %f\n", hist_left.getNumRowsPerBucket(), hist_right.getNumRowsPerBucket());
+          System.out.printf("Estimate row count join cost %f\n", (card==0) ? 0 : (lrc/card)*rrc);
+          System.out.printf("Prev Estimate row count join cost %f\n", (lrc / Math.max(ldrc, rdrc)) * rrc);
+          System.out.printf("RowCnt: %f -- %f\n", lrc, rrc);*/
+          return (card==0) ? 0 : (lrc/card)*rrc*1000;
         }
 
         if (ldrc != null && rdrc != null && lrc != null && rrc != null) {
           // Join cardinality = (lrc * rrc) / Math.max(ldrc, rdrc). Avoid overflow by dividing earlier
-          // System.out.printf("Prev Estimate row count join cost %f\n", (lrc / Math.max(ldrc, rdrc)) * rrc);
           return (lrc / Math.max(ldrc, rdrc)) * rrc;
         }
       }
     }
-
-    /*System.out.println("Join factor: " + joinRowFactor * Math.max(
-            mq.getRowCount(this.getLeft()),
-            mq.getRowCount(this.getRight())));*/
 
     return joinRowFactor * Math.max(
         mq.getRowCount(this.getLeft()),

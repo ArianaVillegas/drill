@@ -72,7 +72,7 @@ public class DrillStatsTable {
   public static final STATS_VERSION CURRENT_VERSION = STATS_VERSION.V1;
   // 10 histogram buckets (TODO: can make this configurable later)
   public static final int NUM_HISTOGRAM_BUCKETS = 10;
-  public static final int ROWS_PER_BUCKET = 5000;
+  public static final int ROWS_PER_BUCKET = 500;
 
   private final FileSystem fs;
   private final Path tablePath;
@@ -411,9 +411,9 @@ public class DrillStatsTable {
     }
     @JsonIgnore
     public void buildHistogram(byte[] tdigest_bytearray) {
-      // int num_buckets = (int) Math.min(ndv, DrillStatsTable.NUM_HISTOGRAM_BUCKETS);
+      int num_buckets = (int) Math.min(ndv, DrillStatsTable.NUM_HISTOGRAM_BUCKETS);
       System.out.println("Build histogram stats table");
-      int num_buckets = (int) Math.min(ndv, count/DrillStatsTable.ROWS_PER_BUCKET);
+      // int num_buckets = (int) Math.min(ndv, count/DrillStatsTable.ROWS_PER_BUCKET);
       this.histogram = HistogramUtils.buildHistogramFromTDigest(tdigest_bytearray, this.getType(),
               num_buckets, nonNullCount);
     }
